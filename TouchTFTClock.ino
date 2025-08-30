@@ -41,22 +41,11 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 // Touchscreen coordinates: (x, y) and pressure (z)
 int x, y, z;
 
-// Print Touchscreen info about X, Y and Pressure (Z) on the Serial Monitor
-void printTouchToSerial(int touchX, int touchY, int touchZ) {
-  Serial.print("X = ");
-  Serial.print(touchX);
-  Serial.print(" | Y = ");
-  Serial.print(touchY);
-  Serial.print(" | Pressure = ");
-  Serial.print(touchZ);
-  Serial.println();
-}
-
 // Print Touchscreen info about X, Y and Pressure (Z) on the TFT Display
 void printTouchToDisplay(int touchX, int touchY, int touchZ) {
   // Clear TFT screen
-  tft.fillScreen(TFT_WHITE);
-  tft.setTextColor(TFT_BLACK, TFT_WHITE);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
 
   int centerX = SCREEN_WIDTH / 2;
   int textY = 80;
@@ -89,8 +78,8 @@ void setup() {
   tft.setRotation(1);
 
   // Clear the screen before writing to it
-  tft.fillScreen(TFT_WHITE);
-  tft.setTextColor(TFT_BLACK, TFT_WHITE);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
   
   // Set X and Y coordinates for center of display
   int centerX = SCREEN_WIDTH / 2;
@@ -110,7 +99,6 @@ void loop() {
     y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
     z = p.z;
 
-    printTouchToSerial(x, y, z);
     printTouchToDisplay(x, y, z);
 
     delay(100);
