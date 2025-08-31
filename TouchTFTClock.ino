@@ -1,17 +1,10 @@
-/*  Rui Santos & Sara Santos - Random Nerd Tutorials
-    THIS EXAMPLE WAS TESTED WITH THE FOLLOWING HARDWARE:
-    1) ESP32-2432S028R 2.8 inch 240×320 also known as the Cheap Yellow Display (CYD): https://makeradvisor.com/tools/cyd-cheap-yellow-display-esp32-2432s028r/
-      SET UP INSTRUCTIONS: https://RandomNerdTutorials.com/cyd/
-    2) REGULAR ESP32 Dev Board + 2.8 inch 240x320 TFT Display: https://makeradvisor.com/tools/2-8-inch-ili9341-tft-240x320/ and https://makeradvisor.com/tools/esp32-dev-board-wi-fi-bluetooth/
-      SET UP INSTRUCTIONS: https://RandomNerdTutorials.com/esp32-tft/
-    Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files.
-    The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-*/
 #include <Arduino.h>
 #include <XPT2046_Touchscreen.h>
-
 #include "User_Setup.h"
 #include <SPI.h>
+#include <time.h>
+#include "WiFi.h"
+
 
 /*  Install the "TFT_eSPI" library by Bodmer to interface with the TFT Display - https://github.com/Bodmer/TFT_eSPI
     *** IMPORTANT: User_Setup.h available on the internet will probably NOT work with the examples available at Random Nerd Tutorials ***
@@ -36,34 +29,94 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 
 #define SCREEN_WIDTH 320
 #define SCREEN_HEIGHT 240
-#define FONT_SIZE 2
+#define FONT_BIG 6
+#define FONT_MED 4
+#define FONT_SMALL 2
 
 // Touchscreen coordinates: (x, y) and pressure (z)
 int x, y, z;
 
+#include "Wireless_Config.h"
+
+// A set of nice public NTP server s
+const char* ntpServer1 = "pool.ntp.org";
+const char* ntpServer2 = "time.apple.com";
+const char* ntpServer3 = "time.nist.gov";
+
+// GMT-7 in AZ
+const long  gmtOffset_sec = -7 * 3600;
+// No DST in AZ; should be 3600 for any other state
+const int   daylightOffset_sec = 0;
+
 // Print Touchscreen info about X, Y and Pressure (Z) on the TFT Display
 void printTouchToDisplay(int touchX, int touchY, int touchZ) {
-  // Clear TFT screen
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK, true);
 
   int centerX = SCREEN_WIDTH / 2;
   int textY = 80;
  
   String tempText = "X = " + String(touchX);
-  tft.drawCentreString(tempText, centerX, textY, FONT_SIZE);
+  tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
 
   textY += 20;
   tempText = "Y = " + String(touchY);
-  tft.drawCentreString(tempText, centerX, textY, FONT_SIZE);
+  tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
 
   textY += 20;
   tempText = "Pressure = " + String(touchZ);
-  tft.drawCentreString(tempText, centerX, textY, FONT_SIZE);
+  tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
+}
+
+void printLocalTime() {
+  // Set X and Y coordinates for center of display
+  int centerX = SCREEN_WIDTH / 2;
+  int centerY = SCREEN_HEIGHT / 4;
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    return;
+  }
+  tft.setTextColor(TFT_CYAN, TFT_BLACK);
+
+  char myDate[16];
+  strftime(myDate, 16, "%a %D", &timeinfo);
+  tft.drawCentreString(myDate, centerX, centerY*3, FONT_MED);
+
+  char myTime[12];
+  strftime(myTime, 12, "%T", &timeinfo);
+  tft.drawCentreString(myTime, centerX, 10, FONT_BIG);
+
 }
 
 void setup() {
   Serial.begin(115200);
+  while (!Serial) delay(100);
+  delay(2000);
+
+  // Do WiFi first
+  Serial.print("Starting Wifi");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+
+  Serial.println("Connected");
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer1, ntpServer2, ntpServer3);
+  delay(1000);
+
+  // Wait for time synchronization
+  Serial.print("Getting time");
+  struct tm timeinfo;
+  while (!getLocalTime(&timeinfo)) {
+    delay(1000);
+    Serial.print(".");
+  }  
+  Serial.println("Done");
+  //disconnect WiFi as it's no longer needed
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  Serial.println("Wifi Off");
+  delay(2000);
 
   // Start the SPI for the touchscreen and init the touchscreen
   touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
@@ -85,11 +138,13 @@ void setup() {
   int centerX = SCREEN_WIDTH / 2;
   int centerY = SCREEN_HEIGHT / 2;
 
-  tft.drawCentreString("Hello, world!", centerX, 30, FONT_SIZE);
-  tft.drawCentreString("Touch screen to test", centerX, centerY, FONT_SIZE);
+  tft.drawCentreString("Hello World!", centerX, 30, FONT_MED);
+  tft.drawCentreString("Press to start", centerX, 120, FONT_MED);
+
 }
 
 void loop() {
+  static bool touched = false;
   // Checks if Touchscreen was touched, and prints X, Y and Pressure (Z) info on the TFT display and Serial Monitor
   if (touchscreen.tirqTouched() && touchscreen.touched()) {
     // Get Touchscreen points
@@ -98,9 +153,12 @@ void loop() {
     x = map(p.x, 200, 3700, 1, SCREEN_WIDTH);
     y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
     z = p.z;
-
+    // Clear TFT screen
+    if (!touched) tft.fillScreen(TFT_BLACK);
     printTouchToDisplay(x, y, z);
-
     delay(100);
+    touched = true;
   }
+  if (touched) printLocalTime();
+  delay(100);
 }
