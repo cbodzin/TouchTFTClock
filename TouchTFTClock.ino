@@ -3,17 +3,10 @@
 #include "User_Setup.h"
 #include <SPI.h>
 #include <time.h>
-#include "WiFi.h"
-
-
-/*  Install the "TFT_eSPI" library by Bodmer to interface with the TFT Display - https://github.com/Bodmer/TFT_eSPI
-    *** IMPORTANT: User_Setup.h available on the internet will probably NOT work with the examples available at Random Nerd Tutorials ***
-    *** YOU MUST USE THE User_Setup.h FILE PROVIDED IN THE LINK BELOW IN ORDER TO USE THE EXAMPLES FROM RANDOM NERD TUTORIALS ***
-    FULL INSTRUCTIONS AVAILABLE ON HOW CONFIGURE THE LIBRARY: https://RandomNerdTutorials.com/cyd/ or https://RandomNerdTutorials.com/esp32-tft/   */
+#include <WiFi.h>
+#include "pitches.h"
 #include <TFT_eSPI.h>
 
-// Install the "XPT2046_Touchscreen" library by Paul Stoffregen to use the Touchscreen - https://github.com/PaulStoffregen/XPT2046_Touchscreen
-// Note: this library doesn't require further configuration
 
 TFT_eSPI tft = TFT_eSPI();
 
@@ -36,6 +29,7 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 // Touchscreen coordinates: (x, y) and pressure (z)
 int x, y, z;
 
+// Need your SSID and Password defined in here
 #include "Wireless_Config.h"
 
 // A set of nice public NTP server s
@@ -65,6 +59,10 @@ void printTouchToDisplay(int touchX, int touchY, int touchZ) {
   textY += 20;
   tempText = "Pressure = " + String(touchZ);
   tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
+
+  // Play a quick tone
+  tone(ALARM_PIN, NOTE_C3, 100);
+  tone(ALARM_PIN, NOTE_C5, 100);
 }
 
 void printLocalTime() {
