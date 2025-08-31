@@ -7,7 +7,6 @@
 #include "pitches.h"
 #include <TFT_eSPI.h>
 
-
 TFT_eSPI tft = TFT_eSPI();
 
 // Touchscreen pins
@@ -25,6 +24,29 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 #define FONT_BIG 6
 #define FONT_MED 4
 #define FONT_SMALL 2
+#define FONT_SIZE 2
+
+// Buttons
+// Button position and size
+#define FRAME_X 80
+#define FRAME_Y 80
+#define FRAME_W 160
+#define FRAME_H 80
+
+// Red zone size
+#define REDBUTTON_X FRAME_X
+#define REDBUTTON_Y FRAME_Y
+#define REDBUTTON_W (FRAME_W / 2)
+#define REDBUTTON_H FRAME_H
+
+// Green zone size
+#define GREENBUTTON_X (REDBUTTON_X + REDBUTTON_W)
+#define GREENBUTTON_Y FRAME_Y
+#define GREENBUTTON_W (FRAME_W / 2)
+#define GREENBUTTON_H FRAME_H
+
+// Stores current button state
+bool buttonState = false;
 
 // Touchscreen coordinates: (x, y) and pressure (z)
 int x, y, z;
@@ -42,23 +64,53 @@ const long  gmtOffset_sec = -7 * 3600;
 // No DST in AZ; should be 3600 for any other state
 const int   daylightOffset_sec = 0;
 
+// Buttons
+// Draw button frame
+void drawFrame() {
+  tft.drawRect(FRAME_X, FRAME_Y, FRAME_W, FRAME_H, TFT_BLACK);
+}
+
+// Draw a red button
+void drawRedButton() {
+  tft.fillRect(REDBUTTON_X, REDBUTTON_Y, REDBUTTON_W, REDBUTTON_H, TFT_RED);
+  tft.fillRect(GREENBUTTON_X, GREENBUTTON_Y, GREENBUTTON_W, GREENBUTTON_H, TFT_WHITE);
+  drawFrame();
+  //tft.setTextColor(TFT_BLACK);
+  //tft.setTextSize(FONT_SIZE);
+  //tft.setTextDatum(MC_DATUM);
+  //tft.drawString("ON", GREENBUTTON_X + (GREENBUTTON_W / 2), GREENBUTTON_Y + (GREENBUTTON_H / 2));
+  buttonState = false;
+}
+
+// Draw a green button
+void drawGreenButton() {
+  tft.fillRect(GREENBUTTON_X, GREENBUTTON_Y, GREENBUTTON_W, GREENBUTTON_H, TFT_GREEN);
+  tft.fillRect(REDBUTTON_X, REDBUTTON_Y, REDBUTTON_W, REDBUTTON_H, TFT_WHITE);
+  drawFrame();
+  //tft.setTextColor(TFT_BLACK);
+  //tft.setTextSize(FONT_SIZE);
+  //tft.setTextDatum(MC_DATUM);
+  //tft.drawString("OFF", REDBUTTON_X + (REDBUTTON_W / 2) + 1, REDBUTTON_Y + (REDBUTTON_H / 2));
+  buttonState = true;
+}
+
 // Print Touchscreen info about X, Y and Pressure (Z) on the TFT Display
 void printTouchToDisplay(int touchX, int touchY, int touchZ) {
-  tft.setTextColor(TFT_YELLOW, TFT_BLACK, true);
+  // tft.setTextColor(TFT_YELLOW, TFT_BLACK, true);
 
-  int centerX = SCREEN_WIDTH / 2;
-  int textY = 80;
+  // int centerX = SCREEN_WIDTH / 2;
+  // int textY = 80;
  
-  String tempText = "X = " + String(touchX);
-  tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
+  // String tempText = "X = " + String(touchX);
+  // tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
 
-  textY += 20;
-  tempText = "Y = " + String(touchY);
-  tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
+  // textY += 20;
+  // tempText = "Y = " + String(touchY);
+  // tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
 
-  textY += 20;
-  tempText = "Pressure = " + String(touchZ);
-  tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
+  // textY += 20;
+  // tempText = "Pressure = " + String(touchZ);
+  // tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
 
   // Play a quick tone
   tone(ALARM_PIN, NOTE_C3, 100);
@@ -140,7 +192,9 @@ void setup() {
 
   tft.drawCentreString("Hello World!", centerX, 30, FONT_MED);
   tft.drawCentreString("Press to start", centerX, 120, FONT_MED);
-
+  
+  // Draw button 
+  drawGreenButton();
 }
 
 void loop() {
@@ -158,6 +212,23 @@ void loop() {
     printTouchToDisplay(x, y, z);
     delay(100);
     touched = true;
+    
+    if (buttonState) {
+      if ((x > REDBUTTON_X) && (x < (REDBUTTON_X + REDBUTTON_W))) {
+        if ((y > (REDBUTTON_Y)) && (y <= (REDBUTTON_Y + REDBUTTON_H))) {
+          drawRedButton();
+          tone(ALARM_PIN, NOTE_G5, 500);
+        }
+      }
+    }
+    else {
+      if ((x > (GREENBUTTON_X)) && (x < (GREENBUTTON_X + GREENBUTTON_W))) {
+        if ((y > (GREENBUTTON_Y)) && (y <= (GREENBUTTON_Y + GREENBUTTON_H))) {
+          drawGreenButton();
+        }
+      }
+    }
+
   }
   if (touched) printLocalTime();
   delay(100);
