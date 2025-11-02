@@ -6,6 +6,7 @@
 #include <WiFi.h>
 #include "pitches.h"
 #include <TFT_eSPI.h>
+#include <SD.h>
 
 // Touchscreen pins
 #define XPT2046_IRQ  36   // T_IRQ
@@ -14,6 +15,7 @@
 #define XPT2046_CLK  25   // T_CLK
 #define XPT2046_CS   33   // T_CS
 #define LED_BL       21   // Backlight
+#define SD_CS        5    // SD Card reader
 
 // Globals for the touchscreen
 TFT_eSPI tft = TFT_eSPI();
@@ -26,17 +28,6 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 #define FONT_MED 4
 #define FONT_SMALL 2
 #define FONT_SIZE 2
-
-// Location for alarm box
-#define HOURTOPX   95
-#define HOURTOPY   125
-#define HOUTBOTX   150
-#define HOURBOTY   165
-#define MINTOPX    170
-#define MINTOPY    125
-#define MINBOTX    225
-#define MINBOTY    165
-
 
 // Defint the buttons
 int buttonCoord[5][4] = {
@@ -66,8 +57,42 @@ int screenBrightness = 128;
 #define MAX_BRIGHT  255
 #define BRIGHT_STEP 10
 
-// Need your SSID and Password defined in here
-#include "Wireless_Config.h"
+struct Config {
+  String ssidName;
+  String ssidPwd;
+  int TZoffset;
+  bool DSTFlag;
+};
+
+Config readConfig (const char* filename) {
+  Config config;
+  File file = SD.open(filename);
+  
+  if (!file) {
+    Serial.println("Config file not found");
+    return config;
+  }
+  
+  while (file.available()) {
+    String line = file.readStringUntil('\n');
+    line.trim();  // Remove whitespace
+    
+    if (line.startsWith("ssid:")) {
+      config.ssidName = line.substring(5);
+    } else if (line.startsWith("password:")) {
+      config.ssidPwd = line.substring(9);
+    } else if (line.startsWith("tz:")) {
+      config.TZoffset = line.substring(3).toInt();
+    } else if (line.startsWith("dst:")) {
+      config.DSTFlag = line.substring(4).toInt();
+    } else {
+      Serial.printf("Read line: %s\n", line);
+    }
+  }
+  
+  file.close();
+  return config;
+}
 
 // A set of nice public NTP server s
 const char* ntpServer1 = "pool.ntp.org";
@@ -137,6 +162,13 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) delay(100);
 
+  if (!SD.begin(SD_CS)) {
+    Serial.println("SD failed!");
+    return;
+  }
+
+  Config mySettings = readConfig("/settings.txt");
+
   // Start the SPI for the touchscreen and init the touchscreen
   touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
   touchscreen.begin(touchscreenSPI);
@@ -159,14 +191,18 @@ void setup() {
 
   // Do WiFi first
   tft.print("\nStarting Wifi");
-  WiFi.begin(ssid, password);
+  WiFi.begin(mySettings.ssidName, mySettings.ssidPwd);
   while (WiFi.status() != WL_CONNECTED) {
     tft.print(".");
     delay(500);
   }
 
-  tft.println("Connected");
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer1, ntpServer2, ntpServer3);
+  tft.printf("\nConnected to SSID %s\n", mySettings.ssidName);
+  long offsetSec = mySettings.TZoffset * 3600;
+  long dstOffset = mySettings.DSTFlag ? 3600 : 0;
+  tft.printf("Setting TZ offset to %d\n", offsetSec);
+  tft.printf("Setting DST offset to %d\n", dstOffset);
+  configTime(offsetSec, dstOffset, ntpServer1, ntpServer2, ntpServer3);
   delay(1000);
 
   // Wait for time synchronization
@@ -176,13 +212,12 @@ void setup() {
     delay(500);
     tft.print(".");
   }  
-  tft.println("Done");
+  tft.println("Done!");
   
   // Disconnect WiFi as it's no longer needed
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
-  tft.println("Wifi Off");
-
+  tft.println("Wifi turned off.");
   tft.println("Press screen to begin");
 
   // Setup for dimming
@@ -217,6 +252,7 @@ void loop() {
       drawButtonRect(BRIGHTER);
       drawButtonRect(DIMMER);
       drawButtonRect(ALARM);
+      
       // Lastly, draw time
       printLocalTime();
       screenReady = true;

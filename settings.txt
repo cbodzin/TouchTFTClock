@@ -1,0 +1,4 @@
+ssid:my_wifi_network
+password:my_password
+tz:-4
+dst:1
