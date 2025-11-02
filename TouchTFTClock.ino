@@ -7,7 +7,6 @@
 #include "pitches.h"
 #include <TFT_eSPI.h>
 
-
 // Touchscreen pins
 #define XPT2046_IRQ  36   // T_IRQ
 #define XPT2046_MOSI 32   // T_DIN
@@ -28,54 +27,44 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 #define FONT_SMALL 2
 #define FONT_SIZE 2
 
+// Location for alarm box
+#define HOURTOPX   95
+#define HOURTOPY   125
+#define HOUTBOTX   150
+#define HOURBOTY   165
+#define MINTOPX    170
+#define MINTOPY    125
+#define MINBOTX    225
+#define MINBOTY    165
+
+
 // Defint the buttons
-int buttonCoord[3][4] = {
-  { 20, 190, TFT_WHITE, TFT_WHITE }, // Brighter
-  { 260, 190, TFT_DARKGREY, TFT_DARKGREY }, // Dimmer
-  { 140, 190, TFT_BLUE, TFT_RED } // Alarm
+int buttonCoord[5][4] = {
+  { 30, 200, 20, TFT_WHITE },     // Brighter
+  { 270, 200, 20, TFT_DARKGREY }, // Dimmer
+  { 140, 190, 40, TFT_RED  },     // Alarm
+  { 95, 125, 55, 165 },           // Alarm Hours
+  { 170, 125, 55, 165  }          // Alarm Minutes
 };
 bool buttonState[3] = { false, false, false };
-int myWidth = 40;
-int myHeight = 40;
-int myRadius = 3;
+#define DEBOUNCE_TIME 200
+#define LONG_PRESS    1000
+int deBounce = 0;
+int pressStart = 0;
 
 #define BRIGHTER   0
 #define DIMMER     1
 #define ALARM      2
-#define MAX_BUTTON 3
+#define ALARM_HH   3
+#define ALARM_MM   4
 
 // Globals
-int alarmTime;
+struct tm alarmTime;
 bool alarmOn = false;
 int screenBrightness = 128;
 #define MIN_BRIGHT  1
 #define MAX_BRIGHT  255
 #define BRIGHT_STEP 10
-
-// // Buttons
-// // Button position and size
-// #define FRAME_X 80
-// #define FRAME_Y 80
-// #define FRAME_W 160
-// #define FRAME_H 80
-
-// // Red zone size
-// #define REDBUTTON_X FRAME_X
-// #define REDBUTTON_Y FRAME_Y
-// #define REDBUTTON_W (FRAME_W / 2)
-// #define REDBUTTON_H FRAME_H
-
-// // Green zone size
-// #define GREENBUTTON_X (REDBUTTON_X + REDBUTTON_W)
-// #define GREENBUTTON_Y FRAME_Y
-// #define GREENBUTTON_W (FRAME_W / 2)
-// #define GREENBUTTON_H FRAME_H
-
-// Stores current button state
-// bool buttonState = false;
-
-// Touchscreen coordinates: (x, y) and pressure (z)
-// int x, y, z;
 
 // Need your SSID and Password defined in here
 #include "Wireless_Config.h"
@@ -90,66 +79,22 @@ const long  gmtOffset_sec = -7 * 3600;
 // No DST in AZ; should be 3600 for any other state
 const int   daylightOffset_sec = 0;
 
-// // Buttons
-// // Draw button frame
-// void drawFrame() {
-//   tft.drawRect(FRAME_X, FRAME_Y, FRAME_W, FRAME_H, TFT_BLACK);
-// }
-
-// // Draw a red button
-// void drawRedButton() {
-//   tft.fillRect(REDBUTTON_X, REDBUTTON_Y, REDBUTTON_W, REDBUTTON_H, TFT_RED);
-//   tft.fillRect(GREENBUTTON_X, GREENBUTTON_Y, GREENBUTTON_W, GREENBUTTON_H, TFT_WHITE);
-//   drawFrame();
-//   //tft.setTextColor(TFT_BLACK);
-//   //tft.setTextSize(FONT_SIZE);
-//   //tft.setTextDatum(MC_DATUM);
-//   //tft.drawString("ON", GREENBUTTON_X + (GREENBUTTON_W / 2), GREENBUTTON_Y + (GREENBUTTON_H / 2));
-//   buttonState = false;
-// }
-
-// // Draw a green button
-// void drawGreenButton() {
-//   tft.fillRect(GREENBUTTON_X, GREENBUTTON_Y, GREENBUTTON_W, GREENBUTTON_H, TFT_GREEN);
-//   tft.fillRect(REDBUTTON_X, REDBUTTON_Y, REDBUTTON_W, REDBUTTON_H, TFT_WHITE);
-//   drawFrame();
-//   //tft.setTextColor(TFT_BLACK);
-//   //tft.setTextSize(FONT_SIZE);
-//   //tft.setTextDatum(MC_DATUM);
-//   //tft.drawString("OFF", REDBUTTON_X + (REDBUTTON_W / 2) + 1, REDBUTTON_Y + (REDBUTTON_H / 2));
-//   buttonState = true;
-// }
-
 void drawButtonRect(int myButton) {
-  // If button is flase then use the unpressed color (2) otherwise use pressed (3)
-  int myColor = buttonState[myButton] ? 3 : 2;
-  tft.drawRoundRect(buttonCoord[myButton][0], buttonCoord[myButton][1], myWidth, myHeight, myRadius, myColor);
+  if (myButton != ALARM) {
+    tft.fillRoundRect(buttonCoord[myButton][0], buttonCoord[myButton][1], buttonCoord[myButton][2], buttonCoord[myButton][2], 3, buttonCoord[myButton][3]);
+  } else {
+    // Special handling for ALARM - fill if true
+    if (buttonState[ALARM]) {
+      tft.fillRoundRect(buttonCoord[myButton][0], buttonCoord[myButton][1], buttonCoord[myButton][2], buttonCoord[myButton][2], 3, buttonCoord[myButton][3]);
+    } else {
+      tft.fillRoundRect(buttonCoord[myButton][0], buttonCoord[myButton][1], buttonCoord[myButton][2], buttonCoord[myButton][2], 3, TFT_BLACK);
+      tft.drawRoundRect(buttonCoord[myButton][0], buttonCoord[myButton][1], buttonCoord[myButton][2], buttonCoord[myButton][2], 3, buttonCoord[myButton][3]);
+    }
+  }
 }
 
-// Print Touchscreen info about X, Y and Pressure (Z) on the TFT Display
-// void printTouchToDisplay(int touchX, int touchY, int touchZ) {
-  // tft.setTextColor(TFT_YELLOW, TFT_BLACK, true);
-
-  // int centerX = SCREEN_WIDTH / 2;
-  // int textY = 80;
- 
-  // String tempText = "X = " + String(touchX);
-  // tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
-
-  // textY += 20;
-  // tempText = "Y = " + String(touchY);
-  // tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
-
-  // textY += 20;
-  // tempText = "Pressure = " + String(touchZ);
-  // tft.drawCentreString(tempText, centerX, textY, FONT_SMALL);
-
-  // Play a quick tone
-//   tone(ALARM_PIN, NOTE_C3, 100);
-//   tone(ALARM_PIN, NOTE_C5, 100);
-// }
-
 void printLocalTime() {
+  static bool lastAlarm = false;
   // Set X and Y coordinates for center of display
   int centerX = SCREEN_WIDTH / 2;
   int centerY = SCREEN_HEIGHT / 4;
@@ -157,20 +102,25 @@ void printLocalTime() {
   if(!getLocalTime(&timeinfo)){
     return;
   }
-  tft.setTextColor(TFT_CYAN, TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
 
   char myDate[16];
   strftime(myDate, 16, "%a %D", &timeinfo);
-  tft.drawCentreString(myDate, centerX, centerY*2, FONT_MED);
+  tft.drawCentreString(myDate, centerX, centerY, FONT_MED);
 
   char myTime[12];
   strftime(myTime, 12, "%T", &timeinfo);
   tft.drawCentreString(myTime, centerX, 10, FONT_BIG);
 
+  char myAlarm[12];
+  strftime(myAlarm, 12, "%H:%M", &alarmTime);
+  if (!alarmOn) tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+  tft.drawCentreString(myAlarm, centerX, centerY*2, FONT_BIG);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
 }
 
 bool buttonPressed(int myButton, int x, int y, int pressure) {
-  if ((x > buttonCoord[myButton][0]) && (x < (buttonCoord[myButton][0] + myWidth)) && (y > buttonCoord[myButton][1]) && (y < (buttonCoord[myButton][1] + myHeight))) {
+  if ((x > buttonCoord[myButton][0]) && (x < (buttonCoord[myButton][0] + buttonCoord[myButton][2])) && (y > buttonCoord[myButton][1]) && (y < (buttonCoord[myButton][1] + buttonCoord[myButton][2]))) {
     return true;
   } else {
     return false;
@@ -180,6 +130,7 @@ bool buttonPressed(int myButton, int x, int y, int pressure) {
 void setBackLight(int brightness) {
   // Set brightness (0-255, where 255 is brightest)
   analogWrite(LED_BL, brightness);
+  Serial.printf("Brightness set to %d\n", brightness);
 }
 
 void setup() {
@@ -236,15 +187,23 @@ void setup() {
 
   // Setup for dimming
   pinMode(LED_BL, OUTPUT);
+
+  // Set default alarm to 6:00am
+  alarmTime.tm_hour = 6;
+  alarmTime.tm_min = 0;
 }
 
 void loop() {
-  static bool touched = false;
+  static bool screenReady = false;
   int x, y, z;
+  bool beingPressed = false;
+  beingPressed = touchscreen.tirqTouched() && touchscreen.touched();
   // Checks if Touchscreen was touched
-  // if (touchscreen.tirqTouched() && touchscreen.touched()) {
-  if (touchscreen.touched()) {  
-    Serial.println("PRESSED!!!!!!");
+  if (beingPressed && (millis()-deBounce > DEBOUNCE_TIME)) {    
+    // Set debounce
+    deBounce = millis();
+    // Set the start for the long press
+    if (pressStart == 0) pressStart = millis();
     // Get Touchscreen points
     TS_Point p = touchscreen.getPoint();
     // Calibrate Touchscreen points with map function to the correct width and height
@@ -252,7 +211,7 @@ void loop() {
     y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
     z = p.z;
     // Clear TFT screen
-    if (!touched) {
+    if (!screenReady) {
       tft.fillScreen(TFT_BLACK);
       // Draw buttons
       drawButtonRect(BRIGHTER);
@@ -260,31 +219,44 @@ void loop() {
       drawButtonRect(ALARM);
       // Lastly, draw time
       printLocalTime();
-      touched = true;
+      screenReady = true;
       delay(100);
     }
     
     // We need to see what was touched
-    if (buttonPressed[BRIGHTER],x,y,z) {
+    if (buttonPressed(BRIGHTER,x,y,z)) {
       screenBrightness += BRIGHT_STEP;
       if (screenBrightness > MAX_BRIGHT) screenBrightness = MAX_BRIGHT;
       setBackLight(screenBrightness);
     } else if (buttonPressed(DIMMER,x,y,z)) {
       screenBrightness -= BRIGHT_STEP;
-      if (screenBrightness > MIN_BRIGHT) screenBrightness = MIN_BRIGHT;
+      if (screenBrightness < MIN_BRIGHT) screenBrightness = MIN_BRIGHT;
       setBackLight(screenBrightness);
     } else if (buttonPressed(ALARM,x,y,z)) {
       // Just toggle
       buttonState[ALARM] = !buttonState[ALARM];
       drawButtonRect(ALARM);
+      alarmOn = buttonState[ALARM];
+      if (alarmOn) {
+        tone(ALARM_PIN, NOTE_C3, 200);
+        tone(ALARM_PIN, NOTE_C5, 100);
+      } else {
+        tone(ALARM_PIN, NOTE_C7, 200);
+        tone(ALARM_PIN, NOTE_C5, 100);
+      }
+    } else if ((buttonPressed(ALARM_HH,x,y,z)) && !alarmOn) {
+      // Only change if alarm is off
+      alarmTime.tm_hour++;
+      if (alarmTime.tm_hour > 23) alarmTime.tm_hour = 0;
+    } else if ((buttonPressed(ALARM_MM,x,y,z)) && !alarmOn) {
+      // only change if alarm is off
+      alarmTime.tm_min++;
+      if (alarmTime.tm_min > 59) alarmTime.tm_min = 0;
     } else {
       Serial.printf("Pressed %d,%d,%d\n", x,y,z);
     }
   }
-  Serial.printf("Pressed %d,%d,%d\n", x,y,z);
-  if (touched){printLocalTime();
-        drawButtonRect(BRIGHTER);
-      drawButtonRect(DIMMER);
-      drawButtonRect(ALARM);}
+
+  if (screenReady) printLocalTime();
   delay(100);
 }
