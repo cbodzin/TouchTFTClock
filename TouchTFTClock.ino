@@ -16,6 +16,7 @@
 #define XPT2046_CS   33   // T_CS
 #define LED_BL       21   // Backlight
 #define SD_CS        5    // SD Card reader
+#define LDR_PIN      34   // The light dependent resistor
 
 // Globals for the touchscreen
 TFT_eSPI tft = TFT_eSPI();
@@ -30,24 +31,30 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 #define FONT_SIZE 2
 
 // Defint the buttons
-int buttonCoord[5][4] = {
+int buttonCoord[6][4] = {
   { 30, 200, 20, TFT_WHITE },     // Brighter
   { 270, 200, 20, TFT_DARKGREY }, // Dimmer
   { 140, 190, 40, TFT_RED  },     // Alarm
   { 95, 125, 55, 165 },           // Alarm Hours
-  { 170, 125, 55, 165  }          // Alarm Minutes
+  { 170, 125, 55, 165 },          // Alarm Minutes
+  { 30, 170, 20, TFT_YELLOW }     // Auto-brightness
 };
-bool buttonState[3] = { false, false, false };
+
+bool buttonState[5] = { false, false, false, false, false };
 #define DEBOUNCE_TIME 200
 #define LONG_PRESS    1000
+#define DIM_INTERVAL  100
 int deBounce = 0;
 int pressStart = 0;
+int lastDimCheck = 0;
+int lastBrightness = 0;
 
 #define BRIGHTER   0
 #define DIMMER     1
 #define ALARM      2
 #define ALARM_HH   3
 #define ALARM_MM   4
+#define AUTODIM    5
 
 // Globals
 struct tm alarmTime;
@@ -105,11 +112,11 @@ const long  gmtOffset_sec = -7 * 3600;
 const int   daylightOffset_sec = 0;
 
 void drawButtonRect(int myButton) {
-  if (myButton != ALARM) {
+  if (myButton < ALARM) {
     tft.fillRoundRect(buttonCoord[myButton][0], buttonCoord[myButton][1], buttonCoord[myButton][2], buttonCoord[myButton][2], 3, buttonCoord[myButton][3]);
   } else {
-    // Special handling for ALARM - fill if true
-    if (buttonState[ALARM]) {
+    // Special handling for ALARM and AUTODIM - fill if true
+    if (buttonState[myButton]) {
       tft.fillRoundRect(buttonCoord[myButton][0], buttonCoord[myButton][1], buttonCoord[myButton][2], buttonCoord[myButton][2], 3, buttonCoord[myButton][3]);
     } else {
       tft.fillRoundRect(buttonCoord[myButton][0], buttonCoord[myButton][1], buttonCoord[myButton][2], buttonCoord[myButton][2], 3, TFT_BLACK);
@@ -155,7 +162,17 @@ bool buttonPressed(int myButton, int x, int y, int pressure) {
 void setBackLight(int brightness) {
   // Set brightness (0-255, where 255 is brightest)
   analogWrite(LED_BL, brightness);
-  Serial.printf("Brightness set to %d\n", brightness);
+}
+
+void doAutoDim() {
+  // First read the sensor
+  int ldrValue = analogRead(LDR_PIN);
+  int brightness = map(ldrValue, 0, 1000, 255, 1);
+  if (brightness < 1) brightness = 1;
+  if (brightness != lastBrightness) {
+    setBackLight(brightness);
+    lastBrightness = brightness;
+  }
 }
 
 void setup() {
@@ -222,6 +239,7 @@ void setup() {
 
   // Setup for dimming
   pinMode(LED_BL, OUTPUT);
+  pinMode(LDR_PIN, INPUT);
 
   // Set default alarm to 6:00am
   alarmTime.tm_hour = 6;
@@ -252,6 +270,7 @@ void loop() {
       drawButtonRect(BRIGHTER);
       drawButtonRect(DIMMER);
       drawButtonRect(ALARM);
+      drawButtonRect(AUTODIM);
       
       // Lastly, draw time
       printLocalTime();
@@ -288,6 +307,9 @@ void loop() {
       // only change if alarm is off
       alarmTime.tm_min++;
       if (alarmTime.tm_min > 59) alarmTime.tm_min = 0;
+    } else if (buttonPressed(AUTODIM,x,y,z)) {
+      buttonState[AUTODIM] = !buttonState[AUTODIM];
+      drawButtonRect(AUTODIM);
     } else {
       Serial.printf("Pressed %d,%d,%d\n", x,y,z);
     }
@@ -295,4 +317,9 @@ void loop() {
 
   if (screenReady) printLocalTime();
   delay(100);
+
+  if ((buttonState[AUTODIM]) && (millis() - lastDimCheck > DIM_INTERVAL)) {
+    lastDimCheck = millis();
+    doAutoDim();
+  } 
 }
