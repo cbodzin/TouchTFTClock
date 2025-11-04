@@ -29,18 +29,23 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 #define FONT_MED 4
 #define FONT_SMALL 2
 #define FONT_SIZE 2
+#define DARK_FONT   20
+#define DARK_COLOR  TFT_RED
+#define LIGHT_FONT  128
+#define LIGHT_COLOR TFT_WHITE
 
 // Defint the buttons
-int buttonCoord[6][4] = {
-  { 30, 200, 20, TFT_WHITE },     // Brighter
-  { 270, 200, 20, TFT_DARKGREY }, // Dimmer
+int buttonCoord[7][4] = {
+  { 30, 200, 30, TFT_WHITE },     // Brighter
+  { 270, 200, 30, TFT_DARKGREY }, // Dimmer
   { 140, 190, 40, TFT_RED  },     // Alarm
   { 95, 125, 55, 165 },           // Alarm Hours
   { 170, 125, 55, 165 },          // Alarm Minutes
-  { 30, 170, 20, TFT_YELLOW }     // Auto-brightness
+  { 30, 160, 30, TFT_YELLOW },    // Auto-brightness
+  { 0, 320, 90, 0 }               // Clock display (toggle size and seconds)
 };
 
-bool buttonState[5] = { false, false, false, false, false };
+bool buttonState[7] = { false, false, false, false, false, false, false };
 #define DEBOUNCE_TIME 200
 #define LONG_PRESS    1000
 #define DIM_INTERVAL  100
@@ -48,6 +53,7 @@ int deBounce = 0;
 int pressStart = 0;
 int lastDimCheck = 0;
 int lastBrightness = 0;
+int curTextColor = TFT_WHITE;
 
 #define BRIGHTER   0
 #define DIMMER     1
@@ -55,10 +61,13 @@ int lastBrightness = 0;
 #define ALARM_HH   3
 #define ALARM_MM   4
 #define AUTODIM    5
+#define CLOCK_AREA 6
 
 // Globals
 struct tm alarmTime;
 bool alarmOn = false;
+bool showSec = false;
+bool silent = false;
 int screenBrightness = 128;
 #define MIN_BRIGHT  1
 #define MAX_BRIGHT  255
@@ -129,39 +138,68 @@ void printLocalTime() {
   static bool lastAlarm = false;
   // Set X and Y coordinates for center of display
   int centerX = SCREEN_WIDTH / 2;
-  int centerY = SCREEN_HEIGHT / 4;
+  int centerY = SCREEN_HEIGHT / 5;
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo)){
     return;
   }
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
+  tft.setTextColor(curTextColor, TFT_BLACK);
+  tft.setTextDatum(TC_DATUM);
+
+  // Did we change from not showing seconds to showing seconds?
+  if (showSec != buttonState[CLOCK_AREA]) {
+    tft.fillRect(0,0,320,90, TFT_BLACK);
+    showSec = buttonState[CLOCK_AREA];
+  }
+
+  if (showSec) {
+    char myTime[9];
+    strftime(myTime, 9, "%H:%M:%S", &timeinfo);
+    tft.setTextSize(3);
+    tft.drawString(myTime, centerX, 10, 4);
+    tft.setTextSize(1);
+  } else {
+    char myTime[6];
+    strftime(myTime, 6, "%H:%M", &timeinfo);
+    tft.drawString(myTime, centerX, 10, 8);
+  }
 
   char myDate[16];
   strftime(myDate, 16, "%a %D", &timeinfo);
-  tft.drawCentreString(myDate, centerX, centerY, FONT_MED);
+  tft.drawString(myDate, centerX, centerY*2, 4);
 
-  char myTime[12];
-  strftime(myTime, 12, "%T", &timeinfo);
-  tft.drawCentreString(myTime, centerX, 10, FONT_BIG);
-
-  char myAlarm[12];
-  strftime(myAlarm, 12, "%H:%M", &alarmTime);
+  char myAlarm[6];
+  strftime(myAlarm, 6, "%H:%M", &alarmTime);
   if (!alarmOn) tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-  tft.drawCentreString(myAlarm, centerX, centerY*2, FONT_BIG);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.drawCentreString(myAlarm, centerX, ( centerY*3)-10, FONT_BIG);
+  tft.setTextColor(curTextColor, TFT_BLACK);
 }
 
 bool buttonPressed(int myButton, int x, int y, int pressure) {
+  bool retVal;
   if ((x > buttonCoord[myButton][0]) && (x < (buttonCoord[myButton][0] + buttonCoord[myButton][2])) && (y > buttonCoord[myButton][1]) && (y < (buttonCoord[myButton][1] + buttonCoord[myButton][2]))) {
-    return true;
+    retVal = true;
   } else {
-    return false;
+    // Special handling for CLOCK_AREA
+    if (myButton == CLOCK_AREA) {
+      // Anywhere on the top section
+      if ((y > 0) && (y < buttonCoord[CLOCK_AREA][2])) retVal = true;
+    }
+    retVal = false;
   }
+
+  // Make a chirp
+  if (retVal && !silent) tone(ALARM_PIN, NOTE_C7, 5);
+  return retVal;
 }
 
 void setBackLight(int brightness) {
   // Set brightness (0-255, where 255 is brightest)
   analogWrite(LED_BL, brightness);
+  // Check if we're really dark and use dark font
+  if (brightness < DARK_FONT) curTextColor = DARK_COLOR;
+  if (brightness > LIGHT_FONT) curTextColor = LIGHT_COLOR;
 }
 
 void doAutoDim() {
@@ -169,10 +207,9 @@ void doAutoDim() {
   int ldrValue = analogRead(LDR_PIN);
   int brightness = map(ldrValue, 0, 1000, 255, 1);
   if (brightness < 1) brightness = 1;
-  if (brightness != lastBrightness) {
-    setBackLight(brightness);
-    lastBrightness = brightness;
-  }
+  if (brightness > 255) brightness = 255;
+  setBackLight(brightness);
+  screenBrightness = brightness;
 }
 
 void setup() {
@@ -200,7 +237,7 @@ void setup() {
 
   // Clear the screen before writing to it
   tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextColor(curTextColor, TFT_BLACK);
   
   // Set X and Y coordinates for center of display
   int centerX = SCREEN_WIDTH / 2;
@@ -310,6 +347,9 @@ void loop() {
     } else if (buttonPressed(AUTODIM,x,y,z)) {
       buttonState[AUTODIM] = !buttonState[AUTODIM];
       drawButtonRect(AUTODIM);
+    } else if (buttonPressed(CLOCK_AREA,x,y,z)) {
+      // Twiddle the state of displaying "%H:%M" and "%H:%M:%S"
+      buttonState[CLOCK_AREA] = !buttonState[CLOCK_AREA];
     } else {
       Serial.printf("Pressed %d,%d,%d\n", x,y,z);
     }
