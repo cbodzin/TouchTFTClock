@@ -51,11 +51,15 @@ bool buttonState[7] = { false, false, false, false, false, false, false };
 #define DEBOUNCE_TIME 200
 #define LONG_PRESS    1000
 #define DIM_INTERVAL  200
+#define TONE_INTERVAL 300
 int deBounce = 0;
 int pressStart = 0;
 int lastDimCheck = 0;
 int lastBrightness = 0;
 int curTextColor = TFT_WHITE;
+bool ringAlarm = false;
+bool alreadyRang = false;
+int lastTone = 0;
 
 #define BRIGHTER   0
 #define DIMMER     1
@@ -176,6 +180,17 @@ void printLocalTime() {
   if (!alarmOn) tft.setTextColor(MY_DARKGREY, TFT_BLACK);
   tft.drawCentreString(myAlarm, centerX, ( centerY*3)-10, FONT_BIG);
   tft.setTextColor(curTextColor, TFT_BLACK);
+
+  // Lastly, check if we are at the alarm time
+  if (alarmOn && !alreadyRang) {
+    if ((timeinfo.tm_hour == alarmTime.tm_hour) && (timeinfo.tm_min == alarmTime.tm_min)) {
+      if (!alreadyRang) {
+        ringAlarm = true;
+      } else {
+        alreadyRang = false;
+      }
+    }
+  }
 }
 
 bool buttonPressed(int myButton, int x, int y, int pressure) {
@@ -187,8 +202,9 @@ bool buttonPressed(int myButton, int x, int y, int pressure) {
     if (myButton == CLOCK_AREA) {
       // Anywhere on the top section
       if ((y > 0) && (y < buttonCoord[CLOCK_AREA][2])) retVal = true;
+    } else {
+      retVal = false;
     }
-    retVal = false;
   }
 
   // Make a chirp
@@ -298,6 +314,14 @@ void loop() {
   int x, y, z;
   bool beingPressed = false;
   beingPressed = touchscreen.tirqTouched() && touchscreen.touched();
+
+  // First things first, turn off the alarm if it is ringing
+  if (beingPressed) {
+    // Dont' let it get turned on again for the rest of the minute
+    if (ringAlarm) alreadyRang = true;
+    ringAlarm = false;
+  }
+
   // Checks if Touchscreen was touched
   if (beingPressed && (millis()-deBounce > DEBOUNCE_TIME)) {    
     // Set debounce
@@ -340,11 +364,11 @@ void loop() {
       drawButtonRect(ALARM);
       alarmOn = buttonState[ALARM];
       if (alarmOn) {
-        tone(ALARM_PIN, NOTE_C3, 200);
-        tone(ALARM_PIN, NOTE_C5, 100);
+        tone(ALARM_PIN, NOTE_C3, 100);
+        tone(ALARM_PIN, NOTE_C5, 50);
       } else {
-        tone(ALARM_PIN, NOTE_C7, 200);
-        tone(ALARM_PIN, NOTE_C5, 100);
+        tone(ALARM_PIN, NOTE_C7, 100);
+        tone(ALARM_PIN, NOTE_C5, 50);
       }
     } else if ((buttonPressed(ALARM_HH,x,y,z)) && !alarmOn) {
       // Only change if alarm is off
@@ -367,6 +391,14 @@ void loop() {
 
   if (screenReady) printLocalTime();
   delay(100);
+
+  // Should we be ringing?
+  if (ringAlarm) {
+    if ((millis() - lastTone) > TONE_INTERVAL) {
+      lastTone = millis();
+      tone(ALARM_PIN, NOTE_G4, 25);
+    }
+  }
 
   if ((buttonState[AUTODIM]) && (millis() - lastDimCheck > DIM_INTERVAL)) {
     lastDimCheck = millis();
