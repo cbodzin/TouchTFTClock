@@ -33,22 +33,24 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 #define DARK_COLOR  TFT_RED
 #define LIGHT_FONT  128
 #define LIGHT_COLOR TFT_WHITE
+#define MY_DARKGREY 0x39E7
+#define MY_REALLYDARK 0x4A49
 
 // Defint the buttons
 int buttonCoord[7][4] = {
   { 30, 200, 30, TFT_WHITE },     // Brighter
-  { 270, 200, 30, TFT_DARKGREY }, // Dimmer
+  { 270, 200, 30, MY_REALLYDARK }, // Dimmer
   { 140, 190, 40, TFT_RED  },     // Alarm
   { 95, 125, 55, 165 },           // Alarm Hours
   { 170, 125, 55, 165 },          // Alarm Minutes
-  { 30, 160, 30, TFT_YELLOW },    // Auto-brightness
+  { 30, 160, 30, MY_DARKGREY },    // Auto-brightness
   { 0, 320, 90, 0 }               // Clock display (toggle size and seconds)
 };
 
 bool buttonState[7] = { false, false, false, false, false, false, false };
 #define DEBOUNCE_TIME 200
 #define LONG_PRESS    1000
-#define DIM_INTERVAL  100
+#define DIM_INTERVAL  200
 int deBounce = 0;
 int pressStart = 0;
 int lastDimCheck = 0;
@@ -171,7 +173,7 @@ void printLocalTime() {
 
   char myAlarm[6];
   strftime(myAlarm, 6, "%H:%M", &alarmTime);
-  if (!alarmOn) tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+  if (!alarmOn) tft.setTextColor(MY_DARKGREY, TFT_BLACK);
   tft.drawCentreString(myAlarm, centerX, ( centerY*3)-10, FONT_BIG);
   tft.setTextColor(curTextColor, TFT_BLACK);
 }
@@ -198,8 +200,16 @@ void setBackLight(int brightness) {
   // Set brightness (0-255, where 255 is brightest)
   analogWrite(LED_BL, brightness);
   // Check if we're really dark and use dark font
-  if (brightness < DARK_FONT) curTextColor = DARK_COLOR;
+  if (brightness < DARK_FONT) {
+    // Dim the brightness button
+    buttonCoord[BRIGHTER][3] == TFT_DARKGREY;
+    drawButtonRect(BRIGHTER);
+    curTextColor = DARK_COLOR;
+  }
   if (brightness > LIGHT_FONT) curTextColor = LIGHT_COLOR;
+    buttonCoord[BRIGHTER][3] == TFT_WHITE;
+    drawButtonRect(BRIGHTER);
+
 }
 
 void doAutoDim() {
