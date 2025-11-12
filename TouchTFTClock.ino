@@ -30,27 +30,28 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 #define FONT_SMALL 2
 #define FONT_SIZE 2
 #define DARK_FONT   20
-#define DARK_COLOR  TFT_RED
+#define DARK_COLOR  TFT_BLUE
 #define LIGHT_FONT  128
 #define LIGHT_COLOR TFT_WHITE
 #define MY_DARKGREY 0x39E7
 #define MY_REALLYDARK 0x4A49
 
 // Defint the buttons
-int buttonCoord[7][4] = {
-  { 30, 200, 30, TFT_WHITE },     // Brighter
+int buttonCoord[8][4] = {
+  { 30, 200, 30, TFT_WHITE },      // Brighter
   { 270, 200, 30, MY_REALLYDARK }, // Dimmer
-  { 140, 190, 40, TFT_RED  },     // Alarm
-  { 95, 125, 55, 165 },           // Alarm Hours
-  { 170, 125, 55, 165 },          // Alarm Minutes
+  { 140, 190, 40, TFT_RED  },      // Alarm
+  { 95, 125, 55, 165 },            // Alarm Hours
+  { 170, 125, 55, 165 },           // Alarm Minutes
   { 30, 160, 30, MY_DARKGREY },    // Auto-brightness
-  { 0, 320, 90, 0 }               // Clock display (toggle size and seconds)
+  { 0, 320, 90, 0 },               // Clock display (toggle size and seconds)
+  { 270, 160, 30, TFT_DARKGREEN }  // Big Clock mode
 };
 
-bool buttonState[7] = { false, false, false, false, false, false, false };
+bool buttonState[8] = { false, false, false, false, false, false, false, true };
 #define DEBOUNCE_TIME 200
 #define LONG_PRESS    1000
-#define DIM_INTERVAL  200
+#define DIM_INTERVAL  500
 #define TONE_INTERVAL 300
 int deBounce = 0;
 int pressStart = 0;
@@ -60,6 +61,7 @@ int curTextColor = TFT_WHITE;
 bool ringAlarm = false;
 bool alreadyRang = false;
 int lastTone = 0;
+bool showBig = false;
 
 #define BRIGHTER   0
 #define DIMMER     1
@@ -68,6 +70,7 @@ int lastTone = 0;
 #define ALARM_MM   4
 #define AUTODIM    5
 #define CLOCK_AREA 6
+#define BIG_CLOCK  7
 
 // Globals
 struct tm alarmTime;
@@ -84,6 +87,7 @@ struct Config {
   String ssidPwd;
   int TZoffset;
   bool DSTFlag;
+  int bigTime;
 };
 
 Config readConfig (const char* filename) {
@@ -107,6 +111,8 @@ Config readConfig (const char* filename) {
       config.TZoffset = line.substring(3).toInt();
     } else if (line.startsWith("dst:")) {
       config.DSTFlag = line.substring(4).toInt();
+    } else if (line.startsWith("autobig:")) {
+      config.bigTime = line.substring(8).toInt();
     } else {
       Serial.printf("Read line: %s\n", line);
     }
@@ -120,11 +126,6 @@ Config readConfig (const char* filename) {
 const char* ntpServer1 = "pool.ntp.org";
 const char* ntpServer2 = "time.apple.com";
 const char* ntpServer3 = "time.nist.gov";
-
-// GMT-7 in AZ
-const long  gmtOffset_sec = -7 * 3600;
-// No DST in AZ; should be 3600 for any other state
-const int   daylightOffset_sec = 0;
 
 void drawButtonRect(int myButton) {
   if (myButton < ALARM) {
@@ -150,8 +151,34 @@ void printLocalTime() {
     return;
   }
 
+  // Check if we are at the alarm time
+  if (alarmOn && !alreadyRang) {
+    if ((timeinfo.tm_hour == alarmTime.tm_hour) && (timeinfo.tm_min == alarmTime.tm_min)) {
+      if (!alreadyRang) {
+        ringAlarm = true;
+      } else {
+        alreadyRang = false;
+      }
+    }
+  }
+
   tft.setTextColor(curTextColor, TFT_BLACK);
   tft.setTextDatum(TC_DATUM);
+
+  // Are we in BIG CLOCK mode?  If so just show the time
+  if (showBig) {
+    char myTime[6];
+    strftime(myTime, 6, "%H:%M", &timeinfo);
+    tft.setTextSize(2);
+    tft.drawString(myTime, centerX, centerY, 7);
+    if (alarmOn) {
+      char myAlarm[6];
+      strftime(myAlarm, 6, "%H:%M", &alarmTime);
+      tft.setTextSize(1);
+      tft.drawString(myAlarm, centerX, 220, 2);
+    }
+    return;
+  }
 
   // Did we change from not showing seconds to showing seconds?
   if (showSec != buttonState[CLOCK_AREA]) {
@@ -181,16 +208,6 @@ void printLocalTime() {
   tft.drawCentreString(myAlarm, centerX, ( centerY*3)-10, FONT_BIG);
   tft.setTextColor(curTextColor, TFT_BLACK);
 
-  // Lastly, check if we are at the alarm time
-  if (alarmOn && !alreadyRang) {
-    if ((timeinfo.tm_hour == alarmTime.tm_hour) && (timeinfo.tm_min == alarmTime.tm_min)) {
-      if (!alreadyRang) {
-        ringAlarm = true;
-      } else {
-        alreadyRang = false;
-      }
-    }
-  }
 }
 
 bool buttonPressed(int myButton, int x, int y, int pressure) {
@@ -215,16 +232,19 @@ bool buttonPressed(int myButton, int x, int y, int pressure) {
 void setBackLight(int brightness) {
   // Set brightness (0-255, where 255 is brightest)
   analogWrite(LED_BL, brightness);
+
   // Check if we're really dark and use dark font
   if (brightness < DARK_FONT) {
     // Dim the brightness button
-    buttonCoord[BRIGHTER][3] == TFT_DARKGREY;
-    drawButtonRect(BRIGHTER);
     curTextColor = DARK_COLOR;
+    buttonCoord[BRIGHTER][3] == TFT_DARKGREY;
+    if (!showBig) drawButtonRect(BRIGHTER);
   }
-  if (brightness > LIGHT_FONT) curTextColor = LIGHT_COLOR;
+  if (brightness > LIGHT_FONT) {
+    curTextColor = LIGHT_COLOR;
     buttonCoord[BRIGHTER][3] == TFT_WHITE;
-    drawButtonRect(BRIGHTER);
+    if (!showBig) drawButtonRect(BRIGHTER);
+  }
 
 }
 
@@ -307,6 +327,7 @@ void setup() {
   // Set default alarm to 6:00am
   alarmTime.tm_hour = 6;
   alarmTime.tm_min = 0;
+
 }
 
 void loop() {
@@ -342,6 +363,7 @@ void loop() {
       drawButtonRect(DIMMER);
       drawButtonRect(ALARM);
       drawButtonRect(AUTODIM);
+      drawButtonRect(BIG_CLOCK);
       
       // Lastly, draw time
       printLocalTime();
@@ -350,7 +372,20 @@ void loop() {
     }
     
     // We need to see what was touched
-    if (buttonPressed(BRIGHTER,x,y,z)) {
+    if (showBig) {
+      // Any press while showing big reverts to normal
+      showBig = false;
+      tft.setTextSize(1);
+      tft.fillScreen(TFT_BLACK);
+      // Draw buttons
+      drawButtonRect(BRIGHTER);
+      drawButtonRect(DIMMER);
+      drawButtonRect(ALARM);
+      drawButtonRect(AUTODIM);
+      drawButtonRect(BIG_CLOCK);
+      // Lastly, draw time      
+      Serial.println("Reseting BIG mode");
+    } else if (buttonPressed(BRIGHTER,x,y,z)) {
       screenBrightness += BRIGHT_STEP;
       if (screenBrightness > MAX_BRIGHT) screenBrightness = MAX_BRIGHT;
       setBackLight(screenBrightness);
@@ -384,6 +419,9 @@ void loop() {
     } else if (buttonPressed(CLOCK_AREA,x,y,z)) {
       // Twiddle the state of displaying "%H:%M" and "%H:%M:%S"
       buttonState[CLOCK_AREA] = !buttonState[CLOCK_AREA];
+    } else if (buttonPressed(BIG_CLOCK,x,y,z)) {
+      showBig = true;
+      tft.fillScreen(TFT_BLACK);
     } else {
       Serial.printf("Pressed %d,%d,%d\n", x,y,z);
     }
