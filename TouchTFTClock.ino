@@ -7,6 +7,7 @@
 #include "pitches.h"
 #include <TFT_eSPI.h>
 #include <SD.h>
+#include <SPIFFS.h>
 
 // Touchscreen pins
 #define XPT2046_IRQ  36   // T_IRQ
@@ -30,11 +31,11 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 #define FONT_SMALL 2
 #define FONT_SIZE 2
 #define DARK_FONT   20
-#define DARK_COLOR  TFT_BLUE
+#define DARK_COLOR  TFT_RED
 #define LIGHT_FONT  128
 #define LIGHT_COLOR TFT_WHITE
-#define MY_DARKGREY 0x39E7
 #define MY_REALLYDARK 0x4A49
+const uint16_t MY_DARKBLUE = tft.color565(15, 15, 40);
 
 // Defint the buttons
 int buttonCoord[8][4] = {
@@ -43,9 +44,9 @@ int buttonCoord[8][4] = {
   { 140, 190, 40, TFT_RED  },      // Alarm
   { 95, 125, 55, 165 },            // Alarm Hours
   { 170, 125, 55, 165 },           // Alarm Minutes
-  { 30, 160, 30, MY_DARKGREY },    // Auto-brightness
+  { 30, 160, 30, TFT_DARKGREY },    // Auto-brightness
   { 0, 320, 90, 0 },               // Clock display (toggle size and seconds)
-  { 270, 160, 30, TFT_DARKGREEN }  // Big Clock mode
+  { 270, 160, 30, MY_DARKBLUE }  // Big Clock mode
 };
 
 bool buttonState[8] = { false, false, false, false, false, false, false, true };
@@ -76,7 +77,8 @@ bool showBig = false;
 struct tm alarmTime;
 bool alarmOn = false;
 bool showSec = false;
-bool silent = false;
+int nightHour = 21;
+int dayHour = 8;
 int screenBrightness = 128;
 #define MIN_BRIGHT  1
 #define MAX_BRIGHT  255
@@ -87,17 +89,63 @@ struct Config {
   String ssidPwd;
   int TZoffset;
   bool DSTFlag;
-  int bigTime;
+  int nightHour;
+  int dayHour;
 };
+
+void writeAlarm() {
+  if (!SPIFFS.begin()) return;
+  // First delete the existing file
+  File file = SPIFFS.open("/alarmset.txt", FILE_WRITE);
+  if (!file) {
+    Serial.println("Couldn't write alarm file.");
+    return;
+  }
+
+  // Reset it
+  file.seek(0);
+  file.printf("hour:%d\nmin:%d\n", alarmTime.tm_hour, alarmTime.tm_min);
+  file.print("state:");
+  file.println(alarmOn ? "on" : "off");
+  file.close();
+}
+
+bool readAlarm(const char* filename) {
+  if (!SPIFFS.begin()) return false;
+  File file = SPIFFS.open(filename);
+  if (!file) {
+    tft.println("Couldn't read alarm file");
+    return false;
+  }
+  tft.println("Reading alarm file");
+  while (file.available()) {
+    String line = file.readStringUntil('\n');
+    line.trim();  // Remove whitespace
+    if (line.startsWith("hour:")) {
+      alarmTime.tm_hour = line.substring(5).toInt();
+    } else if (line.startsWith("min:")) {
+      alarmTime.tm_min = line.substring(4).toInt();
+    } else if (line.startsWith("state:")) {
+      alarmOn = (line.substring(6) == "on");
+    }
+  }
+
+  file.close();
+  buttonState[ALARM] = alarmOn;
+  return true;
+}
 
 Config readConfig (const char* filename) {
   Config config;
+  Serial.println("Starting open");
   File file = SD.open(filename);
-  
+  File file2 = SD.open("/alarm.txt");
+
   if (!file) {
     Serial.println("Config file not found");
     return config;
   }
+  tft.println("Reading configuration file...");
   
   while (file.available()) {
     String line = file.readStringUntil('\n');
@@ -111,14 +159,33 @@ Config readConfig (const char* filename) {
       config.TZoffset = line.substring(3).toInt();
     } else if (line.startsWith("dst:")) {
       config.DSTFlag = line.substring(4).toInt();
-    } else if (line.startsWith("autobig:")) {
-      config.bigTime = line.substring(8).toInt();
+    } else if (line.startsWith("night:")) {
+      config.nightHour = line.substring(6).toInt();
+    } else if (line.startsWith("day:")) {
+      config.dayHour = line.substring(4).toInt();
     } else {
       Serial.printf("Read line: %s\n", line);
     }
   }
-  
+
+  tft.println("Reading alarm file");
+  while (file2.available()) {
+    String line = file.readStringUntil('\n');
+    line.trim();  // Remove whitespace
+    if (line.startsWith("hour:")) {
+      alarmTime.tm_hour = line.substring(5).toInt();
+      tft.printf("Hour:%d\n", alarmTime.tm_hour);
+    } else if (line.startsWith("min:")) {
+      alarmTime.tm_min = line.substring(4).toInt();
+      tft.printf("Min:%d\n", alarmTime.tm_hour);
+    } else if (line.startsWith("state:")) {
+      alarmOn = (line.substring(6) == "on");
+      tft.printf("State:%d\n", alarmOn);
+    }
+  }
+
   file.close();
+  file2.close();
   return config;
 }
 
@@ -160,6 +227,23 @@ void printLocalTime() {
         alreadyRang = false;
       }
     }
+  }
+
+  // Check if we're supposed to set Big Clock on or off 
+  if (!showBig && (timeinfo.tm_hour == nightHour) && (timeinfo.tm_min == 0) && (timeinfo.tm_sec == 0)) {
+    showBig = true;
+    tft.fillScreen(TFT_BLACK);
+  }
+  if (showBig && (timeinfo.tm_hour == dayHour) && (timeinfo.tm_min == 0) && (timeinfo.tm_sec == 0)) {
+    showBig = false;
+    tft.setTextSize(1);
+    tft.fillScreen(TFT_BLACK);
+    // Draw buttons
+    drawButtonRect(BRIGHTER);
+    drawButtonRect(DIMMER);
+    drawButtonRect(ALARM);
+    drawButtonRect(AUTODIM);
+    drawButtonRect(BIG_CLOCK);
   }
 
   tft.setTextColor(curTextColor, TFT_BLACK);
@@ -204,7 +288,7 @@ void printLocalTime() {
 
   char myAlarm[6];
   strftime(myAlarm, 6, "%H:%M", &alarmTime);
-  if (!alarmOn) tft.setTextColor(MY_DARKGREY, TFT_BLACK);
+  if (!alarmOn) tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
   tft.drawCentreString(myAlarm, centerX, ( centerY*3)-10, FONT_BIG);
   tft.setTextColor(curTextColor, TFT_BLACK);
 
@@ -225,7 +309,7 @@ bool buttonPressed(int myButton, int x, int y, int pressure) {
   }
 
   // Make a chirp
-  if (retVal && !silent) tone(ALARM_PIN, NOTE_C7, 5);
+  if (retVal) tone(ALARM_PIN, NOTE_C6, 3);
   return retVal;
 }
 
@@ -252,12 +336,20 @@ void doAutoDim() {
   // First read the sensor
   int ldrValue = analogRead(LDR_PIN);
   int brightness = map(ldrValue, 0, 1000, 255, 1);
+
+  // If it is really dark and it is night then go to Big Clock Mode
   if (brightness < 1) brightness = 1;
   if (brightness > 255) brightness = 255;
   setBackLight(brightness);
   screenBrightness = brightness;
 }
 
+
+/*
+
+  Setup routine
+  
+*/
 void setup() {
   Serial.begin(115200);
   while (!Serial) delay(100);
@@ -318,20 +410,42 @@ void setup() {
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
   tft.println("Wifi turned off.");
-  tft.println("Press screen to begin");
+
+  // Did we read night and day settings?
+  if (mySettings.nightHour) nightHour = mySettings.nightHour;
+  tft.printf("Setting night mode hour to %d\n", nightHour);
+  if (mySettings.dayHour) dayHour = mySettings.dayHour;
+  tft.printf("Setting day mode hour to %d\n", dayHour);
 
   // Setup for dimming
   pinMode(LED_BL, OUTPUT);
   pinMode(LDR_PIN, INPUT);
+  tft.println("Backlight and LDR initialized.");
 
   // Set default alarm to 6:00am
-  alarmTime.tm_hour = 6;
-  alarmTime.tm_min = 0;
+  if (readAlarm("/alarmset.txt")) {
+    tft.printf("Setting alarm to %d:%d\n", alarmTime.tm_hour, alarmTime.tm_min);
+    tft.println(alarmOn ? "Alarm turned on." : "Alarm turned off");
+  } else {
+    alarmTime.tm_hour = 6;
+    alarmTime.tm_min = 0;
+    alarmOn = false;
+    tft.println("Defaulting to 6:00am alarm, currently off");
+  }
 
+  delay(5000);
+  // Clear TFT screen
+  tft.fillScreen(TFT_BLACK);
+  // Draw buttons
+  drawButtonRect(BRIGHTER);
+  drawButtonRect(DIMMER);
+  drawButtonRect(ALARM);
+  drawButtonRect(AUTODIM);
+  drawButtonRect(BIG_CLOCK);
+  
 }
 
 void loop() {
-  static bool screenReady = false;
   int x, y, z;
   bool beingPressed = false;
   beingPressed = touchscreen.tirqTouched() && touchscreen.touched();
@@ -355,21 +469,6 @@ void loop() {
     x = map(p.x, 200, 3700, 1, SCREEN_WIDTH);
     y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
     z = p.z;
-    // Clear TFT screen
-    if (!screenReady) {
-      tft.fillScreen(TFT_BLACK);
-      // Draw buttons
-      drawButtonRect(BRIGHTER);
-      drawButtonRect(DIMMER);
-      drawButtonRect(ALARM);
-      drawButtonRect(AUTODIM);
-      drawButtonRect(BIG_CLOCK);
-      
-      // Lastly, draw time
-      printLocalTime();
-      screenReady = true;
-      delay(100);
-    }
     
     // We need to see what was touched
     if (showBig) {
@@ -383,7 +482,6 @@ void loop() {
       drawButtonRect(ALARM);
       drawButtonRect(AUTODIM);
       drawButtonRect(BIG_CLOCK);
-      // Lastly, draw time      
       Serial.println("Reseting BIG mode");
     } else if (buttonPressed(BRIGHTER,x,y,z)) {
       screenBrightness += BRIGHT_STEP;
@@ -398,6 +496,8 @@ void loop() {
       buttonState[ALARM] = !buttonState[ALARM];
       drawButtonRect(ALARM);
       alarmOn = buttonState[ALARM];
+      // Write the time and on/off state to file
+      writeAlarm();
       if (alarmOn) {
         tone(ALARM_PIN, NOTE_C3, 100);
         tone(ALARM_PIN, NOTE_C5, 50);
@@ -427,7 +527,7 @@ void loop() {
     }
   }
 
-  if (screenReady) printLocalTime();
+  printLocalTime();
   delay(100);
 
   // Should we be ringing?
