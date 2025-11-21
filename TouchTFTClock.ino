@@ -8,6 +8,7 @@
 #include <TFT_eSPI.h>
 #include <SD.h>
 #include <SPIFFS.h>
+#include "icons.h"
 
 // Touchscreen pins
 #define XPT2046_IRQ  36   // T_IRQ
@@ -39,14 +40,14 @@ const uint16_t MY_DARKBLUE = tft.color565(15, 15, 40);
 
 // Defint the buttons
 int buttonCoord[8][4] = {
-  { 30, 200, 30, TFT_WHITE },      // Brighter
-  { 270, 200, 30, MY_REALLYDARK }, // Dimmer
-  { 140, 190, 40, TFT_RED  },      // Alarm
+  { 30, 200, 32, TFT_WHITE },      // Brighter
+  { 268, 200, 32, MY_REALLYDARK }, // Dimmer
+  { 140, 182, 48, TFT_RED  },      // Alarm
   { 95, 125, 55, 165 },            // Alarm Hours
   { 170, 125, 55, 165 },           // Alarm Minutes
-  { 30, 160, 30, TFT_DARKGREY },    // Auto-brightness
+  { 30, 160, 32, TFT_YELLOW },    // Auto-brightness
   { 0, 320, 90, 0 },               // Clock display (toggle size and seconds)
-  { 270, 160, 30, MY_DARKBLUE }  // Big Clock mode
+  { 268, 160, 32, TFT_WHITE }  // Big Clock mode
 };
 
 bool buttonState[8] = { false, false, false, false, false, false, false, true };
@@ -195,17 +196,33 @@ const char* ntpServer2 = "time.apple.com";
 const char* ntpServer3 = "time.nist.gov";
 
 void drawButtonRect(int myButton) {
-  if (myButton < ALARM) {
-    tft.fillRoundRect(buttonCoord[myButton][0], buttonCoord[myButton][1], buttonCoord[myButton][2], buttonCoord[myButton][2], 3, buttonCoord[myButton][3]);
-  } else {
-    // Special handling for ALARM and AUTODIM - fill if true
-    if (buttonState[myButton]) {
-      tft.fillRoundRect(buttonCoord[myButton][0], buttonCoord[myButton][1], buttonCoord[myButton][2], buttonCoord[myButton][2], 3, buttonCoord[myButton][3]);
-    } else {
-      tft.fillRoundRect(buttonCoord[myButton][0], buttonCoord[myButton][1], buttonCoord[myButton][2], buttonCoord[myButton][2], 3, TFT_BLACK);
-      tft.drawRoundRect(buttonCoord[myButton][0], buttonCoord[myButton][1], buttonCoord[myButton][2], buttonCoord[myButton][2], 3, buttonCoord[myButton][3]);
-    }
-  }
+/*
+#define BRIGHTER   0
+#define DIMMER     1
+#define ALARM      2
+#define ALARM_HH   3
+#define ALARM_MM   4
+#define AUTODIM    5
+#define CLOCK_AREA 6
+#define BIG_CLOCK  7
+
+*/
+  switch (myButton) {
+    case BRIGHTER:
+      tft.drawBitmap(buttonCoord[myButton][0], buttonCoord[myButton][1], brightness_up_bits, buttonCoord[myButton][2], buttonCoord[myButton][2], buttonCoord[myButton][3], TFT_BLACK);
+      break;
+    case DIMMER:
+      tft.drawBitmap(buttonCoord[myButton][0], buttonCoord[myButton][1], brightness_down_bits, buttonCoord[myButton][2], buttonCoord[myButton][2], buttonCoord[myButton][3], TFT_BLACK);
+      break;
+    case ALARM:
+      tft.drawBitmap(buttonCoord[myButton][0], buttonCoord[myButton][1], bellIcon48, buttonCoord[myButton][2], buttonCoord[myButton][2], (buttonState[myButton] ? TFT_RED : TFT_DARKGREY), TFT_BLACK);
+      break;
+    case AUTODIM:
+      tft.drawBitmap(buttonCoord[myButton][0], buttonCoord[myButton][1], lightbulb_bits, buttonCoord[myButton][2], buttonCoord[myButton][2], (buttonState[myButton] ? TFT_YELLOW : TFT_DARKGREY), TFT_BLACK);
+      break;
+    case BIG_CLOCK:
+      tft.drawBitmap(buttonCoord[myButton][0], buttonCoord[myButton][1], fontsize_up_bits, buttonCoord[myButton][2], buttonCoord[myButton][2], buttonCoord[myButton][3], TFT_BLACK);
+  } 
 }
 
 void printLocalTime() {
@@ -424,7 +441,7 @@ void setup() {
 
   // Set default alarm to 6:00am
   if (readAlarm("/alarmset.txt")) {
-    tft.printf("Setting alarm to %d:%d\n", alarmTime.tm_hour, alarmTime.tm_min);
+    tft.printf("Setting alarm to %d:%02d\n", alarmTime.tm_hour, alarmTime.tm_min);
     tft.println(alarmOn ? "Alarm turned on." : "Alarm turned off");
   } else {
     alarmTime.tm_hour = 6;
