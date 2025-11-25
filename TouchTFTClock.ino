@@ -95,10 +95,36 @@ struct Config {
 };
 
 void soundAlarm() {
-  static int toneLength = 10;
+  int toneLength = 5;
+  int myTone = NOTE_G4;
+  // First see if we have been ringing for a while
+  struct tm curTimeInfo;
+  if(getLocalTime(&curTimeInfo)) {
+    // Add time to the toneLength
+    int secondsPassed = curTimeInfo.tm_sec / 10 ;
+    toneLength = 5 + (secondsPassed * 5);
+  }
+
+  switch (toneLength) {
+    case 5:
+    case 10:
+      myTone = NOTE_G4;
+      break;
+    case 15:
+    case 20:
+      myTone = NOTE_A5;
+      break;
+    case 25:
+      myTone = NOTE_B6;
+      break;
+    case 30:
+    default:
+      myTone = NOTE_C7;
+  }
+
   if ((millis() - lastTone) > TONE_INTERVAL) {
     lastTone = millis();
-    tone(ALARM_PIN, NOTE_G4, toneLength);
+    tone(ALARM_PIN, myTone, toneLength);
   }
 }
 
@@ -572,13 +598,7 @@ void loop() {
   delay(100);
 
   // Should we be ringing?
-  if (ringAlarm) {
-    if ((millis() - lastTone) > TONE_INTERVAL) {
-      // lastTone = millis();
-      // tone(ALARM_PIN, NOTE_G4, 10);
-      soundAlarm();
-    }
-  }
+  if (ringAlarm) soundAlarm();
 
   if ((buttonState[AUTODIM]) && (millis() - lastDimCheck > DIM_INTERVAL)) {
     lastDimCheck = millis();
