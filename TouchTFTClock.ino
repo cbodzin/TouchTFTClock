@@ -94,6 +94,35 @@ struct Config {
   int dayHour;
 };
 
+// A set of nice public NTP server s
+const char* ntpServer1 = "pool.ntp.org";
+const char* ntpServer2 = "time.apple.com";
+const char* ntpServer3 = "time.nist.gov";
+
+Config mySettings;
+
+void syncWithNTP() {
+  WiFi.begin(mySettings.ssidName, mySettings.ssidPwd);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(10);
+  }
+
+  long offsetSec = mySettings.TZoffset * 3600;
+  long dstOffset = mySettings.DSTFlag ? 3600 : 0;
+  configTime(offsetSec, dstOffset, ntpServer1, ntpServer2, ntpServer3);
+  delay(1000);
+
+  // Wait for time synchronization
+  struct tm timeinfo;
+  while (!getLocalTime(&timeinfo)) {
+    delay(50);
+  }  
+  
+  // Disconnect WiFi as it's no longer needed
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+}
+
 void soundAlarm() {
   int toneLength = 5;
   int myTone = NOTE_G4;
@@ -224,11 +253,6 @@ Config readConfig (const char* filename) {
   return config;
 }
 
-// A set of nice public NTP server s
-const char* ntpServer1 = "pool.ntp.org";
-const char* ntpServer2 = "time.apple.com";
-const char* ntpServer3 = "time.nist.gov";
-
 void drawButtonRect(int myButton) {
 /*
 #define BRIGHTER   0
@@ -261,6 +285,8 @@ void drawButtonRect(int myButton) {
 
 void printLocalTime() {
   static bool lastAlarm = false;
+  static bool alreadySynced = false;
+
   // Set X and Y coordinates for center of display
   int centerX = SCREEN_WIDTH / 2;
   int centerY = SCREEN_HEIGHT / 5;
@@ -359,6 +385,13 @@ void printLocalTime() {
   tft.drawCentreString(myAlarm, centerX, ( centerY*3)-10, FONT_BIG);
   tft.setTextColor(curTextColor, TFT_BLACK);
 
+  // Lastly, if this is the magic hour of 12:13am then sync with NTP
+  if ((timeinfo.tm_hour == 0) && (timeinfo.tm_min == 13) && (!alreadySynced)) {
+    syncWithNTP();
+    alreadySynced = true;
+  } else if (timeinfo.tm_min != 13) {
+    alreadySynced = false;
+  }
 }
 
 bool buttonPressed(int myButton, int x, int y, int pressure) {
@@ -426,7 +459,7 @@ void setup() {
     return;
   }
 
-  Config mySettings = readConfig("/settings.txt");
+  mySettings = readConfig("/settings.txt");
 
   // Start the SPI for the touchscreen and init the touchscreen
   touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
