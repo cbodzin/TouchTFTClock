@@ -32,7 +32,7 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 #define FONT_SMALL 2
 #define FONT_SIZE 2
 #define DARK_FONT   20
-#define DARK_COLOR  TFT_RED
+#define DARK_COLOR  TFT_LIGHTGREY
 #define LIGHT_FONT  128
 #define LIGHT_COLOR TFT_WHITE
 #define MY_REALLYDARK 0x4A49
@@ -93,6 +93,14 @@ struct Config {
   int nightHour;
   int dayHour;
 };
+
+void soundAlarm() {
+  static int toneLength = 10;
+  if ((millis() - lastTone) > TONE_INTERVAL) {
+    lastTone = millis();
+    tone(ALARM_PIN, NOTE_G4, toneLength);
+  }
+}
 
 void writeAlarm() {
   if (!SPIFFS.begin()) return;
@@ -244,8 +252,24 @@ void printLocalTime() {
         alreadyRang = false;
       }
     }
+  } 
+
+  // Reset alreadyRang if needed
+  if (alreadyRang && (timeinfo.tm_hour == alarmTime.tm_hour) && (timeinfo.tm_min == (alarmTime.tm_min+1))) {
+    // One minute past alarm
+    alreadyRang = false;
   }
 
+  // Special handling for alarms at :59
+  if (alreadyRang && (timeinfo.tm_hour == alarmTime.tm_hour-1) && (timeinfo.tm_min == 0) && (alarmTime.tm_min == 59)) {
+    alreadyRang = false;
+  }
+
+  // Really special handling for alarms at 23:59
+  if (alreadyRang && (timeinfo.tm_hour == 0) && (alarmTime.tm_hour == 23) && (timeinfo.tm_min == 0) && (alarmTime.tm_min == 59)) {
+    alreadyRang = false;
+  }
+  
   // Check if we're supposed to set Big Clock on or off 
   if (!showBig && (timeinfo.tm_hour == nightHour) && (timeinfo.tm_min == 0) && (timeinfo.tm_sec == 0)) {
     showBig = true;
@@ -550,8 +574,9 @@ void loop() {
   // Should we be ringing?
   if (ringAlarm) {
     if ((millis() - lastTone) > TONE_INTERVAL) {
-      lastTone = millis();
-      tone(ALARM_PIN, NOTE_G4, 25);
+      // lastTone = millis();
+      // tone(ALARM_PIN, NOTE_G4, 10);
+      soundAlarm();
     }
   }
 
