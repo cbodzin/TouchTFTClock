@@ -385,8 +385,8 @@ void printLocalTime() {
   tft.drawCentreString(myAlarm, centerX, ( centerY*3)-10, FONT_BIG);
   tft.setTextColor(curTextColor, TFT_BLACK);
 
-  // Lastly, if this is the magic hour of 12:13am then sync with NTP
-  if ((timeinfo.tm_hour == 0) && (timeinfo.tm_min == 13) && (!alreadySynced)) {
+  // Lastly, if this is the magic hour of 2:13am then sync with NTP (after DST changes)
+  if ((timeinfo.tm_hour == 2) && (timeinfo.tm_min == 13) && (!alreadySynced)) {
     syncWithNTP();
     alreadySynced = true;
   } else if (timeinfo.tm_min != 13) {
